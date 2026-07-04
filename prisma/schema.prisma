@@ -1,0 +1,37 @@
+// Prisma schema — run: npx prisma migrate dev --name init
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // swap to "sqlite" for local quick-start
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  voices    Voice[]
+}
+
+model Voice {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  elevenVoiceId String   // the voice_id returned by ElevenLabs
+  name          String
+  sampleUrl     String   // Vercel Blob URL of the original recorded sample
+  status        String   @default("ready") // "processing" | "ready" | "failed"
+  createdAt     DateTime @default(now())
+  generations   Generation[]
+}
+
+model Generation {
+  id        String   @id @default(uuid())
+  voiceId   String
+  voice     Voice    @relation(fields: [voiceId], references: [id])
+  text      String
+  audioUrl  String   // Vercel Blob URL of the synthesized mp3
+  createdAt DateTime @default(now())
+}
