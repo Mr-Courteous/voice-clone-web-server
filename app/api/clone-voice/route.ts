@@ -1,8 +1,6 @@
 // app/api/clone-voice/route.ts
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import fs from 'fs';
-import path from 'path';
 
 // Your Hugging Face Space running app.py (XTTS-v2 server)
 const HF_SPACE_URL = process.env.HF_SPACE_URL || 'https://mr-courteous-voice-clone.hf.space';
@@ -26,22 +24,21 @@ export async function POST(request: Request) {
       user = await db.user.create({ data: { email: 'developer@example.com' } });
     }
 
-    // Save a local copy so the frontend can always play back the original sample
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
+    // Read the upload once into memory — no filesystem writes anywhere
+    // (serverless deploy targets like Vercel ship a read-only filesystem
+    // outside of /tmp, so writing to public/uploads throws EROFS).
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const mimeType = file.type || 'audio/wav';
 
-    const filename = `${Date.now()}-${file.name || 'voice.webm'}`;
-    const filePath = path.join(uploadDir, filename);
-    const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
-    const relativeUrl = `/uploads/${filename}`;
+    // Store the sample directly in the database as a data URL, so playback
+    // works without needing any file storage at all.
+    const sampleDataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
 
-    // --- Forward the sample to the XTTS-v2 engine on Hugging Face ---
+    // --- Forward the sample to the XTTS-v2 engine on Hugging Face, from memory ---
     const engineForm = new FormData();
     // app.py expects the field name "file"
-    engineForm.append('file', new Blob([buffer], { type: file.type || 'audio/wav' }), file.name || 'voice.wav');
+    engineForm.append('file', new Blob([buffer], { type: mimeType }), file.name || 'voice.wav');
 
     const engineRes = await fetch(`${HF_SPACE_URL}/api/clone`, {
       method: 'POST',
@@ -63,12 +60,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Voice engine did not return a speaker_id.' }, { status: 502 });
     }
 
-    // Persist: elevenVoiceId now stores the *real* XTTS speaker_id used for synthesis
+    // Persist: sampleUrl now holds a data URL (DB-only, no disk); elevenVoiceId
+    // stores the real XTTS speaker_id the engine uses for synthesis.
     const newVoice = await db.voice.create({
       data: {
         userId: user.id,
         name: name,
-        sampleUrl: relativeUrl,
+        sampleUrl: sampleDataUrl,
         elevenVoiceId: speakerId,
         status: 'ready',
       },

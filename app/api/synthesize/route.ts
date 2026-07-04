@@ -1,8 +1,6 @@
 // app/api/synthesize/route.ts
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import fs from 'fs';
-import path from 'path';
 
 const HF_SPACE_URL = process.env.HF_SPACE_URL || 'https://mr-courteous-voice-clone.hf.space';
 
@@ -48,32 +46,26 @@ export async function POST(request: Request) {
             );
         }
 
+        // 3. Hold the generated audio in memory only — no filesystem writes.
+        // Encode as a data URL so the DB stores the audio and the frontend can
+        // play it back directly with zero file storage involved.
         const audioArrayBuffer = await engineRes.arrayBuffer();
+        const audioBuffer = Buffer.from(audioArrayBuffer);
+        const audioDataUrl = `data:audio/wav;base64,${audioBuffer.toString('base64')}`;
 
-        // 3. Save the returned wav to disk so the frontend can play/reference it via a URL
-        const outputDir = path.join(process.cwd(), 'public', 'generated');
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir, { recursive: true });
-        }
+        console.log(`Success! Generated ${audioBuffer.length} bytes of audio for voice ${voice.name}`);
 
-        const outputFilename = `cloned-output-${Date.now()}.wav`;
-        const absoluteOutputPath = path.join(outputDir, outputFilename);
-        fs.writeFileSync(absoluteOutputPath, Buffer.from(audioArrayBuffer));
-        const generatedAudioUrl = `/generated/${outputFilename}`;
-
-        console.log(`Success! Created new cloned output at: ${generatedAudioUrl}`);
-
-        // 4. Save the new output file tracking details to your Prisma history database
+        // 4. Save the generation to your Prisma history database (audio + text)
         await db.generation.create({
             data: {
                 voiceId: voice.id,
                 text: text,
-                audioUrl: generatedAudioUrl,
+                audioUrl: audioDataUrl,
             }
         });
 
         return NextResponse.json({
-            audioUrl: generatedAudioUrl,
+            audioUrl: audioDataUrl,
             success: true
         });
 
