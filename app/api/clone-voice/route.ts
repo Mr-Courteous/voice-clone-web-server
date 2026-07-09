@@ -72,7 +72,13 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ success: true, voice: newVoice });
+    // The engine flags clips that are too short to clone accurately —
+    // surface that to the frontend instead of letting it fail silently.
+    return NextResponse.json({
+      success: true,
+      voice: newVoice,
+      warning: engineData.warning || null,
+    });
   } catch (error: any) {
     console.error('Cloning error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

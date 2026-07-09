@@ -103,6 +103,12 @@ export default function VoiceRecorder() {
         setVoices((prev) => [data.voice, ...prev]);
         setSelectedVoice(data.voice.id);
       }
+
+      // Clone succeeded, but the engine flagged the sample as too short
+      // for an accurate clone — show it as a warning, not a hard error.
+      if (data.warning) {
+        setError(data.warning);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
